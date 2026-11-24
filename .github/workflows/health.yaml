@@ -1,0 +1,36 @@
+name: Health
+# UNPRIVILEGED first hop. Mirrors dart-lang/ecosystem .github/workflows/health_internal.yaml
+# (on: pull_request, uploads an "output" artifact).
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions: read-all
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe the UNPRIVILEGED hop's token (expect 403 read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "=== unprivileged hop token probe ==="
+          curl -s -o /tmp/r1 -w "comment_attempt_http=%{http_code}\n" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -d '{"body":"UNPRIVILEGED_HOP_MUST_NOT_BE_ABLE_TO_POST"}'
+          cat /tmp/r1; echo
+      - name: Build artifact from PR-controlled payload
+        run: |
+          mkdir -p output
+          cp payload.md output/comment.md
+          echo "${{ github.event.pull_request.number }}" > output/issueNumber
+          echo "=== artifact payload ==="; cat output/comment.md
+      - name: Upload output
+        uses: actions/upload-artifact@v4
+        with:
+          name: output
+          path: output/
+      - name: DELIBERATE FAILURE (consumer has no conclusion gate)
+        run: |
+          echo "first hop failing on purpose"
+          exit 1

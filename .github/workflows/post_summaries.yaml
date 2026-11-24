@@ -1,0 +1,44 @@
+name: Post Summaries
+# PRIVILEGED second hop. Mirrors dart-lang/ecosystem .github/workflows/post_summaries.yaml:
+# workflow_run consumer with pull-requests:write, gated ONLY on event==pull_request (no conclusion gate).
+on:
+  workflow_run:
+    workflows: [Health]
+    types: [completed]
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+jobs:
+  upload:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact from the triggering run id
+        uses: actions/download-artifact@v4
+        with:
+          name: output
+          path: out
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Show triggering run conclusion (proves no conclusion gate)
+        run: echo "CONSUMING_RUN_CONCLUSION=${{ github.event.workflow_run.conclusion }}"
+      - name: Read canary secret (privileged context only)
+        env:
+          CANARY: ${{ secrets.LANE3_CANARY }}
+        run: |
+          echo "CANARY_SECRET=${CANARY}"
+          echo "CANARY_LEN=${#CANARY}"
+      - name: Publish attacker artifact content as github-actions[bot]
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=$(cat out/issueNumber)
+          BODY=$(cat out/comment.md)
+          echo "TARGET_PR=$PR"
+          echo "=== artifact body about to be published ==="
+          echo "$BODY"
+          payload=$(jq -n --arg b "$BODY" '{body:$b}')
+          curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/$PR/comments" \
+            -d "$payload" | jq -r '"published_comment_id=\(.id) author=\(.user.login) url=\(.html_url) msg=\(.message // "")"'
